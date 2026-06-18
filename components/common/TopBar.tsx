@@ -6,35 +6,45 @@ import Icon from './Icon';
 
 const CURRENT_VERSION = '3.1.0';
 const UPDATE_CACHE_KEY = 'serpbear_update_check';
-const UPDATE_CACHE_TTL = 86400000; // 24h
 
 function useUpdateCheck() {
-   const [newVersion, setNewVersion] = useState<string | null>(null);
-   const [dismissed, setDismissed] = useState(false);
+   const [latestVersion, setLatestVersion] = useState<string | null>(null);
+   const [checking, setChecking] = useState(false);
+   const [lastChecked, setLastChecked] = useState<string | null>(null);
 
-   useEffect(() => {
+   const check = (force = false) => {
+      if (checking) return;
       try {
-         const cached = localStorage.getItem(UPDATE_CACHE_KEY);
-         if (cached) {
-            const { version, ts } = JSON.parse(cached);
-            if (Date.now() - ts < UPDATE_CACHE_TTL) {
-               if (version && version !== CURRENT_VERSION) setNewVersion(version);
-               return;
+         if (!force) {
+            const cached = localStorage.getItem(UPDATE_CACHE_KEY);
+            if (cached) {
+               const { version, ts } = JSON.parse(cached);
+               if (Date.now() - ts < 3600000) {
+                  setLatestVersion(version);
+                  setLastChecked(new Date(ts).toLocaleTimeString());
+                  return;
+               }
             }
          }
       } catch { /* ignore */ }
-
+      setChecking(true);
       fetch('https://api.github.com/repos/towfiqi/serpbear/releases/latest')
          .then((r) => r.json())
          .then((data) => {
             const tag = (data?.tag_name || '').replace(/^v/, '');
-            localStorage.setItem(UPDATE_CACHE_KEY, JSON.stringify({ version: tag, ts: Date.now() }));
-            if (tag && tag !== CURRENT_VERSION) setNewVersion(tag);
+            const ts = Date.now();
+            localStorage.setItem(UPDATE_CACHE_KEY, JSON.stringify({ version: tag, ts }));
+            setLatestVersion(tag);
+            setLastChecked(new Date(ts).toLocaleTimeString());
          })
-         .catch(() => { /* silently ignore */ });
-   }, []);
+         .catch(() => { /* ignore */ })
+         .finally(() => setChecking(false));
+   };
 
-   return { newVersion, dismissed, dismiss: () => setDismissed(true) };
+   useEffect(() => { check(); }, []);
+
+   const hasUpdate = latestVersion !== null && latestVersion !== CURRENT_VERSION;
+   return { latestVersion, hasUpdate, checking, lastChecked, checkNow: () => check(true) };
 }
 
 type TopbarProps = {
@@ -46,7 +56,7 @@ const TopBar = ({ showSettings, showAddModal }:TopbarProps) => {
    const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
    const router = useRouter();
    const isDomainsPage = router.pathname === '/domains';
-   const { newVersion, dismissed, dismiss } = useUpdateCheck();
+   const { latestVersion, hasUpdate, checking, lastChecked, checkNow } = useUpdateCheck();
 
    const logoutUser = async () => {
       try {
@@ -65,23 +75,35 @@ const TopBar = ({ showSettings, showAddModal }:TopbarProps) => {
 
    return (
       <>
-      {newVersion && !dismissed && (
-         <div className='w-full bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-800'>
-            <span>
-               <strong>Mise à jour disponible :</strong> SerpBear v{newVersion} est disponible
-               (version actuelle : v{CURRENT_VERSION}).
-               <a
-                  href='https://github.com/towfiqi/serpbear/releases'
-                  target='_blank'
-                  rel='noreferrer'
-                  className='ml-2 underline font-semibold'
-               >
-                  Voir les changements
-               </a>
-            </span>
-            <button onClick={dismiss} className='ml-4 text-amber-600 hover:text-amber-900 font-bold'>✕</button>
-         </div>
-      )}
+      <div className={`w-full border-b px-4 py-1 flex items-center justify-between text-xs
+         ${hasUpdate ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
+         <span>
+            Version actuelle : <strong>v{CURRENT_VERSION}</strong>
+            {latestVersion && (
+               <span className='ml-2'>
+                  — Upstream : <strong className={hasUpdate ? 'text-amber-700' : 'text-green-600'}>v{latestVersion}</strong>
+                  {hasUpdate && (
+                     <a
+                        href='https://github.com/towfiqi/serpbear/releases'
+                        target='_blank'
+                        rel='noreferrer'
+                        className='ml-2 underline font-semibold text-amber-700'
+                     >
+                        Voir les changements
+                     </a>
+                  )}
+               </span>
+            )}
+            {lastChecked && <span className='ml-2 text-gray-400'>({lastChecked})</span>}
+         </span>
+         <button
+            onClick={checkNow}
+            disabled={checking}
+            className='ml-4 px-2 py-0.5 border border-gray-300 rounded text-xs hover:bg-gray-100 disabled:opacity-50'
+         >
+            {checking ? '...' : 'Vérifier'}
+         </button>
+      </div>
        <div className={`topbar flex w-full mx-auto justify-between
        ${isDomainsPage ? 'max-w-5xl lg:justify-between' : 'max-w-7xl lg:justify-end'}  bg-white lg:bg-transparent`}>
 
@@ -115,6 +137,13 @@ const TopBar = ({ showSettings, showAddModal }:TopbarProps) => {
                   <Link href={'/research'} passHref={true}>
                      <a className='block px-3 py-2 cursor-pointer'>
                         <Icon type="research" color={router.asPath === '/research' ? '#1d4ed8' : '#888'} size={14} /> Research
+                     </a>
+                  </Link>
+               </li>
+               <li className={`block lg:inline-block lg:ml-5 ${router.asPath === '/api-docs' ? ' text-blue-700' : ''}`}>
+                  <Link href={'/api-docs'} passHref={true}>
+                     <a className='block px-3 py-2 cursor-pointer'>
+                        <Icon type="lock" color={router.asPath === '/api-docs' ? '#1d4ed8' : '#888'} size={14} /> API
                      </a>
                   </Link>
                </li>

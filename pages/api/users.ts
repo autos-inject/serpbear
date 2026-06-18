@@ -5,24 +5,30 @@ import database from '../../database/database';
 import User from '../../database/models/user';
 import { hashPassword, generateSalt } from './login';
 
-type JWTPayload = { user: string; role: string };
+type JWTPayload = { user: string; role?: string };
 
-function getTokenPayload(req: NextApiRequest, res: NextApiResponse): JWTPayload | null {
+async function getAdminPayload(req: NextApiRequest, res: NextApiResponse): Promise<JWTPayload | null> {
    if (!process.env.SECRET) return null;
    const cookies = new Cookies(req, res);
    const token = cookies.get('token');
    if (!token) return null;
+   let payload: JWTPayload;
    try {
-      return jwt.verify(token, process.env.SECRET) as JWTPayload;
+      payload = jwt.verify(token, process.env.SECRET) as JWTPayload;
    } catch {
       return null;
    }
+   if (payload.role === 'admin') return payload;
+   // Old token without role — look up DB
+   await database.authenticate();
+   const dbUser = await User.findOne({ where: { username: payload.user } });
+   if (dbUser && dbUser.role === 'admin') return { ...payload, role: 'admin' };
+   return null;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-   const payload = getTokenPayload(req, res);
-   if (!payload) return res.status(401).json({ error: 'Not authorized' });
-   if (payload.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+   const payload = await getAdminPayload(req, res);
+   if (!payload) return res.status(401).json({ error: 'Not authorized or Admin only' });
 
    await database.authenticate();
 
