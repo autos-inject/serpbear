@@ -1,3 +1,4 @@
+/* eslint-disable quotes, max-len */
 import type { NextPage } from 'next';
 import Head from 'next/head';
 import React, { useState } from 'react';
