@@ -13,32 +13,40 @@ type NewUserForm = { username: string; email: string; password: string; role: 'a
 
 const emptyForm: NewUserForm = { username: '', email: '', password: '', role: 'viewer' };
 
+const apiCall = async (method: string, body: object) => {
+   const res = await fetch('/api/users', {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+   });
+   if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+   return res.json();
+};
+
 const UsersSettings = () => {
    const queryClient = useQueryClient();
    const [showAdd, setShowAdd] = useState(false);
    const [form, setForm] = useState<NewUserForm>(emptyForm);
    const [editingPassword, setEditingPassword] = useState<{ ID: number; password: string } | null>(null);
+   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
 
    const { data: users = [], isLoading } = useQuery('users', fetchUsers);
 
    const createMutation = useMutation(
-      async (data: NewUserForm) => {
-         const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-         return res.json();
-      },
+      (data: NewUserForm) => apiCall('POST', data),
       {
-         onSuccess: () => { queryClient.invalidateQueries('users'); setForm(emptyForm); setShowAdd(false); toast.success('User created'); },
+         onSuccess: () => {
+            queryClient.invalidateQueries('users');
+            setForm(emptyForm);
+            setShowAdd(false);
+            toast.success('User created');
+         },
          onError: (e: Error) => toast.error(e.message),
       },
    );
 
    const updateRoleMutation = useMutation(
-      async ({ ID, role }: { ID: number; role: string }) => {
-         const res = await fetch('/api/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ID, role }) });
-         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-         return res.json();
-      },
+      ({ ID, role }: { ID: number; role: string }) => apiCall('PUT', { ID, role }),
       {
          onSuccess: () => { queryClient.invalidateQueries('users'); toast.success('Role updated'); },
          onError: (e: Error) => toast.error(e.message),
@@ -46,31 +54,39 @@ const UsersSettings = () => {
    );
 
    const updatePasswordMutation = useMutation(
-      async ({ ID, password }: { ID: number; password: string }) => {
-         const res = await fetch('/api/users', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ID, password }) });
-         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-         return res.json();
-      },
+      ({ ID, password }: { ID: number; password: string }) => apiCall('PUT', { ID, password }),
       {
-         onSuccess: () => { queryClient.invalidateQueries('users'); setEditingPassword(null); toast.success('Password updated'); },
+         onSuccess: () => {
+            queryClient.invalidateQueries('users');
+            setEditingPassword(null);
+            toast.success('Password updated');
+         },
          onError: (e: Error) => toast.error(e.message),
       },
    );
 
    const deleteMutation = useMutation(
-      async (ID: number) => {
-         const res = await fetch('/api/users', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ID }) });
-         if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
-         return res.json();
-      },
+      (ID: number) => apiCall('DELETE', { ID }),
       {
-         onSuccess: () => { queryClient.invalidateQueries('users'); toast.success('User deleted'); },
+         onSuccess: () => {
+            queryClient.invalidateQueries('users');
+            setConfirmDelete(null);
+            toast.success('User deleted');
+         },
          onError: (e: Error) => toast.error(e.message),
       },
    );
 
    const inputStyle = 'w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:border-blue-500';
    const labelStyle = 'block text-xs font-semibold text-gray-600 mb-1';
+
+   const handlePasswordToggle = (userID: number) => {
+      setEditingPassword(editingPassword?.ID === userID ? null : { ID: userID, password: '' });
+   };
+
+   const handleRoleChange = (userID: number, role: string) => {
+      updateRoleMutation.mutate({ ID: userID, role });
+   };
 
    return (
       <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
@@ -89,19 +105,37 @@ const UsersSettings = () => {
                <div className="grid grid-cols-2 gap-2 mb-2">
                   <div>
                      <label className={labelStyle}>Username</label>
-                     <input className={inputStyle} value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+                     <input
+                        className={inputStyle}
+                        value={form.username}
+                        onChange={(e) => setForm({ ...form, username: e.target.value })}
+                     />
                   </div>
                   <div>
                      <label className={labelStyle}>Email</label>
-                     <input className={inputStyle} type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                     <input
+                        className={inputStyle}
+                        type="email"
+                        value={form.email}
+                        onChange={(e) => setForm({ ...form, email: e.target.value })}
+                     />
                   </div>
                   <div>
                      <label className={labelStyle}>Password</label>
-                     <input className={inputStyle} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+                     <input
+                        className={inputStyle}
+                        type="password"
+                        value={form.password}
+                        onChange={(e) => setForm({ ...form, password: e.target.value })}
+                     />
                   </div>
                   <div>
                      <label className={labelStyle}>Role</label>
-                     <select className={inputStyle} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as 'admin' | 'viewer' })}>
+                     <select
+                        className={inputStyle}
+                        value={form.role}
+                        onChange={(e) => setForm({ ...form, role: e.target.value as 'admin' | 'viewer' })}
+                     >
                         <option value="viewer">Viewer</option>
                         <option value="admin">Admin</option>
                      </select>
@@ -131,23 +165,40 @@ const UsersSettings = () => {
                         <select
                            className="text-xs border border-gray-300 rounded px-1 py-0.5"
                            value={user.role}
-                           onChange={(e) => updateRoleMutation.mutate({ ID: user.ID, role: e.target.value })}
+                           onChange={(e) => handleRoleChange(user.ID, e.target.value)}
                         >
                            <option value="viewer">Viewer</option>
                            <option value="admin">Admin</option>
                         </select>
                         <button
-                           onClick={() => setEditingPassword(editingPassword?.ID === user.ID ? null : { ID: user.ID, password: '' })}
+                           onClick={() => handlePasswordToggle(user.ID)}
                            className="text-xs px-2 py-0.5 border border-gray-300 rounded hover:bg-gray-100"
                         >
                            Password
                         </button>
-                        <button
-                           onClick={() => { if (window.confirm(`Delete ${user.username}?`)) deleteMutation.mutate(user.ID); }}
-                           className="text-xs px-2 py-0.5 border border-red-300 text-red-600 rounded hover:bg-red-50"
-                        >
-                           Delete
-                        </button>
+                        {confirmDelete === user.ID ? (
+                           <span className="flex items-center gap-1">
+                              <button
+                                 onClick={() => deleteMutation.mutate(user.ID)}
+                                 className="text-xs px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+                              >
+                                 Confirm
+                              </button>
+                              <button
+                                 onClick={() => setConfirmDelete(null)}
+                                 className="text-xs px-2 py-0.5 border border-gray-300 rounded hover:bg-gray-100"
+                              >
+                                 Cancel
+                              </button>
+                           </span>
+                        ) : (
+                           <button
+                              onClick={() => setConfirmDelete(user.ID)}
+                              className="text-xs px-2 py-0.5 border border-red-300 text-red-600 rounded hover:bg-red-50"
+                           >
+                              Delete
+                           </button>
+                        )}
                      </div>
                   </div>
                   {editingPassword?.ID === user.ID && (
