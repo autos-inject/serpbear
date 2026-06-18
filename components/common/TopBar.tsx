@@ -1,8 +1,41 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import Icon from './Icon';
+
+const CURRENT_VERSION = '3.1.0';
+const UPDATE_CACHE_KEY = 'serpbear_update_check';
+const UPDATE_CACHE_TTL = 86400000; // 24h
+
+function useUpdateCheck() {
+   const [newVersion, setNewVersion] = useState<string | null>(null);
+   const [dismissed, setDismissed] = useState(false);
+
+   useEffect(() => {
+      try {
+         const cached = localStorage.getItem(UPDATE_CACHE_KEY);
+         if (cached) {
+            const { version, ts } = JSON.parse(cached);
+            if (Date.now() - ts < UPDATE_CACHE_TTL) {
+               if (version && version !== CURRENT_VERSION) setNewVersion(version);
+               return;
+            }
+         }
+      } catch { /* ignore */ }
+
+      fetch('https://api.github.com/repos/towfiqi/serpbear/releases/latest')
+         .then((r) => r.json())
+         .then((data) => {
+            const tag = (data?.tag_name || '').replace(/^v/, '');
+            localStorage.setItem(UPDATE_CACHE_KEY, JSON.stringify({ version: tag, ts: Date.now() }));
+            if (tag && tag !== CURRENT_VERSION) setNewVersion(tag);
+         })
+         .catch(() => { /* silently ignore */ });
+   }, []);
+
+   return { newVersion, dismissed, dismiss: () => setDismissed(true) };
+}
 
 type TopbarProps = {
    showSettings: Function,
@@ -13,6 +46,7 @@ const TopBar = ({ showSettings, showAddModal }:TopbarProps) => {
    const [showMobileMenu, setShowMobileMenu] = useState<boolean>(false);
    const router = useRouter();
    const isDomainsPage = router.pathname === '/domains';
+   const { newVersion, dismissed, dismiss } = useUpdateCheck();
 
    const logoutUser = async () => {
       try {
@@ -30,7 +64,25 @@ const TopBar = ({ showSettings, showAddModal }:TopbarProps) => {
    };
 
    return (
-       <div className={`topbar flex w-full mx-auto justify-between 
+      <>
+      {newVersion && !dismissed && (
+         <div className='w-full bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between text-xs text-amber-800'>
+            <span>
+               <strong>Mise à jour disponible :</strong> SerpBear v{newVersion} est disponible
+               (version actuelle : v{CURRENT_VERSION}).
+               <a
+                  href='https://github.com/towfiqi/serpbear/releases'
+                  target='_blank'
+                  rel='noreferrer'
+                  className='ml-2 underline font-semibold'
+               >
+                  Voir les changements
+               </a>
+            </span>
+            <button onClick={dismiss} className='ml-4 text-amber-600 hover:text-amber-900 font-bold'>✕</button>
+         </div>
+      )}
+       <div className={`topbar flex w-full mx-auto justify-between
        ${isDomainsPage ? 'max-w-5xl lg:justify-between' : 'max-w-7xl lg:justify-end'}  bg-white lg:bg-transparent`}>
 
          <h3 className={`p-4 text-base font-bold text-blue-700 ${isDomainsPage ? 'lg:pl-0' : 'lg:hidden'}`}>
@@ -80,6 +132,7 @@ const TopBar = ({ showSettings, showAddModal }:TopbarProps) => {
             </ul>
          </div>
        </div>
+      </>
    );
  };
 
