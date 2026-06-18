@@ -94,8 +94,12 @@ const ApiDocs: NextPage = () => {
       fetch('/api/generateapikey', { method: 'POST' })
          .then((r) => r.json())
          .then((d) => {
-            if (d.key) { setApiKey(d.key); toast.success('Nouvelle clé générée'); }
-            else toast.error(d.error || 'Erreur');
+            if (d.key) {
+               setApiKey(d.key);
+               toast.success('Nouvelle clé générée');
+            } else {
+               toast.error(d.error || 'Erreur');
+            }
          })
          .catch(() => { toast.error('Erreur réseau'); })
          .finally(() => setGenerating(false));
@@ -120,8 +124,12 @@ const ApiDocs: NextPage = () => {
       })
          .then((r) => r.json())
          .then((d) => {
-            if (Array.isArray(d.allowed_ips)) { setAllowedIPs(d.allowed_ips); toast.success('IPs enregistrées'); }
-            else toast.error(d.error || 'Erreur');
+            if (Array.isArray(d.allowed_ips)) {
+               setAllowedIPs(d.allowed_ips);
+               toast.success('IPs enregistrées');
+            } else {
+               toast.error(d.error || 'Erreur');
+            }
          })
          .catch(() => { toast.error('Erreur réseau'); })
          .finally(() => setSavingIPs(false));
