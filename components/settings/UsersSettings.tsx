@@ -23,12 +23,22 @@ const apiCall = async (method: string, body: object) => {
    return res.json();
 };
 
+const sendInvite = async (ID: number): Promise<void> => {
+   const res = await fetch('/api/sendinvite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ID }),
+   });
+   if (!res.ok) { const e = await res.json(); throw new Error(e.error); }
+};
+
 const UsersSettings = () => {
    const queryClient = useQueryClient();
    const [showAdd, setShowAdd] = useState(false);
    const [form, setForm] = useState<NewUserForm>(emptyForm);
    const [editingPassword, setEditingPassword] = useState<{ ID: number; password: string } | null>(null);
    const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+   const [sendingInvite, setSendingInvite] = useState<number | null>(null);
 
    const { data: users = [], isLoading } = useQuery('users', fetchUsers);
 
@@ -86,6 +96,14 @@ const UsersSettings = () => {
 
    const handleRoleChange = (userID: number, role: string) => {
       updateRoleMutation.mutate({ ID: userID, role });
+   };
+
+   const handleSendInvite = (userID: number) => {
+      setSendingInvite(userID);
+      sendInvite(userID)
+         .then(() => { toast.success('Email envoyé'); })
+         .catch((e: Error) => { toast.error(e.message); })
+         .finally(() => { setSendingInvite(null); });
    };
 
    return (
@@ -176,6 +194,16 @@ const UsersSettings = () => {
                         >
                            Password
                         </button>
+                        {user.email && (
+                           <button
+                              onClick={() => handleSendInvite(user.ID)}
+                              disabled={sendingInvite === user.ID}
+                              title={`Envoyer les accès à ${user.email}`}
+                              className="text-xs px-2 py-0.5 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
+                           >
+                              {sendingInvite === user.ID ? '...' : 'Mail'}
+                           </button>
+                        )}
                         {confirmDelete === user.ID ? (
                            <span className="flex items-center gap-1">
                               <button
