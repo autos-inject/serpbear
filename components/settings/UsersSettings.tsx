@@ -174,14 +174,14 @@ const UsersSettings = () => {
          <div className="space-y-2">
             {users.map((user) => (
                <div key={user.ID} className="border border-gray-200 rounded p-3 bg-white">
-                  <div className="flex justify-between items-start">
+                  <div className="flex flex-col gap-2">
                      <div>
                         <p className="text-sm font-semibold text-gray-800">{user.username}</p>
-                        {user.email && <p className="text-xs text-gray-500">{user.email}</p>}
+                        {user.email && <p className="text-xs text-gray-400">{user.email}</p>}
                      </div>
-                     <div className="flex items-center gap-2">
+                     <div className="flex items-center gap-2 flex-wrap">
                         <select
-                           className="text-xs border border-gray-300 rounded px-1 py-0.5"
+                           className="text-xs border border-gray-300 rounded px-1 py-1"
                            value={user.role}
                            onChange={(e) => handleRoleChange(user.ID, e.target.value)}
                         >
@@ -190,7 +190,7 @@ const UsersSettings = () => {
                         </select>
                         <button
                            onClick={() => handlePasswordToggle(user.ID)}
-                           className="text-xs px-2 py-0.5 border border-gray-300 rounded hover:bg-gray-100"
+                           className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-100"
                         >
                            Password
                         </button>
@@ -199,32 +199,32 @@ const UsersSettings = () => {
                               onClick={() => handleSendInvite(user.ID)}
                               disabled={sendingInvite === user.ID}
                               title={`Envoyer les accès à ${user.email}`}
-                              className="text-xs px-2 py-0.5 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
+                              className="text-xs px-2 py-1 border border-blue-300 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
                            >
-                              {sendingInvite === user.ID ? '...' : 'Mail'}
+                              {sendingInvite === user.ID ? '...' : 'Envoyer accès'}
                            </button>
                         )}
                         {confirmDelete === user.ID ? (
-                           <span className="flex items-center gap-1">
+                           <span className="flex items-center gap-1 ml-auto">
                               <button
                                  onClick={() => deleteMutation.mutate(user.ID)}
-                                 className="text-xs px-2 py-0.5 bg-red-600 text-white rounded hover:bg-red-700"
+                                 className="text-xs px-2 py-1 bg-red-600 text-white rounded hover:bg-red-700"
                               >
-                                 Confirm
+                                 Confirmer
                               </button>
                               <button
                                  onClick={() => setConfirmDelete(null)}
-                                 className="text-xs px-2 py-0.5 border border-gray-300 rounded hover:bg-gray-100"
+                                 className="text-xs px-2 py-1 border border-gray-300 rounded hover:bg-gray-100"
                               >
-                                 Cancel
+                                 Annuler
                               </button>
                            </span>
                         ) : (
                            <button
                               onClick={() => setConfirmDelete(user.ID)}
-                              className="text-xs px-2 py-0.5 border border-red-300 text-red-600 rounded hover:bg-red-50"
+                              className="text-xs px-2 py-1 border border-red-300 text-red-600 rounded hover:bg-red-50 ml-auto"
                            >
-                              Delete
+                              Supprimer
                            </button>
                         )}
                      </div>
