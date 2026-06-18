@@ -41,7 +41,7 @@ const UsersSettings = () => {
             setShowAdd(false);
             toast.success('User created');
          },
-         onError: (e: Error) => toast.error(e.message),
+         onError: (e: Error) => { toast.error(e.message); },
       },
    );
 
@@ -49,7 +49,7 @@ const UsersSettings = () => {
       ({ ID, role }: { ID: number; role: string }) => apiCall('PUT', { ID, role }),
       {
          onSuccess: () => { queryClient.invalidateQueries('users'); toast.success('Role updated'); },
-         onError: (e: Error) => toast.error(e.message),
+         onError: (e: Error) => { toast.error(e.message); },
       },
    );
 
@@ -61,7 +61,7 @@ const UsersSettings = () => {
             setEditingPassword(null);
             toast.success('Password updated');
          },
-         onError: (e: Error) => toast.error(e.message),
+         onError: (e: Error) => { toast.error(e.message); },
       },
    );
 
@@ -73,7 +73,7 @@ const UsersSettings = () => {
             setConfirmDelete(null);
             toast.success('User deleted');
          },
-         onError: (e: Error) => toast.error(e.message),
+         onError: (e: Error) => { toast.error(e.message); },
       },
    );
 
