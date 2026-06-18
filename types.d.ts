@@ -89,9 +89,19 @@ type DomainSettings = {
    subdomain_matching?: string,
 }
 
+type ApiKeyEntry = {
+   id: string,
+   label: string,
+   provider: string,
+   key: string,
+   exhausted: boolean,
+   requestCount: number,
+}
+
 type SettingsType = {
    scraper_type: string,
    scaping_api?: string,
+   scaping_apis?: ApiKeyEntry[],
    proxy?: string,
    notification_interval: string,
    notification_email: string,

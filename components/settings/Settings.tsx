@@ -55,7 +55,7 @@ const Settings = ({ closeSettings }:SettingsProps) => {
       if (e.target === e.currentTarget) { closeSettings(); }
    };
 
-   const updateSettings = (key: string, value:string|number|boolean) => {
+   const updateSettings = (key: string, value: string|number|boolean|ApiKeyEntry[]) => {
       setSettings({ ...settings, [key]: value });
    };
 
@@ -74,7 +74,8 @@ const Settings = ({ closeSettings }:SettingsProps) => {
          }
       }
 
-      if (scraper_type !== 'proxy' && scraper_type !== 'none' && !scaping_api) {
+      const hasMultiKeys = settings.scaping_apis && settings.scaping_apis.some((k) => k.provider === scraper_type && k.key);
+      if (scraper_type !== 'proxy' && scraper_type !== 'none' && !scaping_api && !hasMultiKeys) {
          error = { type: 'no_api_key', msg: 'Insert a Valid API Key or Token for the Scraper Service.' };
       }
 

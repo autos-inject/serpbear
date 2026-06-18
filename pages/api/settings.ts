@@ -1,3 +1,4 @@
+/* eslint-disable max-len, no-nested-ternary */
 import { writeFile, readFile, rename, stat } from 'fs/promises';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import Cryptr from 'cryptr';
@@ -10,10 +11,31 @@ type SettingsGetResponse = {
    error?: string,
 }
 
+const BALANCE_FETCHERS: Record<string, (key: string) => Promise<{balance: number|null, total: number|null}>> = {
+   serper: async (key) => {
+      const r = await fetch('https://google.serper.dev/account', { headers: { 'X-API-KEY': key } });
+      const d = await r.json();
+      return { balance: d?.balance ?? null, total: 2500 };
+   },
+   serpapi: async (key) => {
+      const r = await fetch(`https://serpapi.com/account?api_key=${key}`);
+      const d = await r.json();
+      return { balance: d?.plan_searches_left ?? null, total: d?.plan_monthly_searches ?? null };
+   },
+   scrapingant: async (key) => {
+      const r = await fetch(`https://api.scrapingant.com/v2/usage?x-api-key=${key}`);
+      const d = await r.json();
+      return { balance: d?.credits_remaining ?? null, total: d?.credits_total ?? null };
+   },
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
    const authorized = verifyUser(req, res);
    if (authorized !== 'authorized') {
       return res.status(401).json({ error: authorized });
+   }
+   if (req.method === 'GET' && req.query.balance === 'true') {
+      return getBalances(req, res);
    }
    if (req.method === 'GET') {
       return getSettings(req, res);
@@ -23,6 +45,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
    }
    return res.status(502).json({ error: 'Unrecognized Route.' });
 }
+
+const getBalances = async (req: NextApiRequest, res: NextApiResponse) => {
+   const settings = await getAppSettings();
+   const keys: ApiKeyEntry[] = settings.scaping_apis && settings.scaping_apis.length > 0
+      ? settings.scaping_apis
+      : settings.scaping_api ? [{ id: 'legacy', label: 'API Key', provider: settings.scraper_type, key: settings.scaping_api, exhausted: false, requestCount: 0 }] : [];
+
+   const results = await Promise.all(keys.map(async (entry) => {
+      const fetcher = BALANCE_FETCHERS[entry.provider];
+      if (!fetcher) return { id: entry.id, label: entry.label, provider: entry.provider, balance: null, total: null, error: 'No balance API for this provider' };
+      try {
+         const { balance, total } = await fetcher(entry.key);
+         return { id: entry.id, label: entry.label, provider: entry.provider, balance, total, error: null };
+      } catch (e: any) {
+         return { id: entry.id, label: entry.label, provider: entry.provider, balance: null, total: null, error: e?.message || 'Error' };
+      }
+   }));
+   return res.status(200).json({ balances: results });
+};
 
 const getSettings = async (req: NextApiRequest, res: NextApiResponse<SettingsGetResponse>) => {
    const settings = await getAppSettings();
@@ -50,10 +91,15 @@ const updateSettings = async (req: NextApiRequest, res: NextApiResponse<Settings
       const adwords_client_secret = settings.adwords_client_secret ? cryptr.encrypt(settings.adwords_client_secret.trim()) : '';
       const adwords_developer_token = settings.adwords_developer_token ? cryptr.encrypt(settings.adwords_developer_token.trim()) : '';
       const adwords_account_id = settings.adwords_account_id ? cryptr.encrypt(settings.adwords_account_id.trim()) : '';
+      const scaping_apis = (settings.scaping_apis || []).map((entry: ApiKeyEntry) => ({
+         ...entry,
+         key: entry.key ? cryptr.encrypt(entry.key.trim()) : '',
+      }));
 
       const securedSettings = {
          ...settings,
          scaping_api,
+         scaping_apis,
          smtp_password,
          search_console_client_email,
          search_console_private_key,
@@ -126,9 +172,15 @@ export const getAppSettings = async () : Promise<SettingsType> => {
       const adwords_developer_token = settings.adwords_developer_token ? cryptr.decrypt(settings.adwords_developer_token) : '';
       const adwords_account_id = settings.adwords_account_id ? cryptr.decrypt(settings.adwords_account_id) : '';
 
+      const scaping_apis = (settings.scaping_apis || []).map((entry: ApiKeyEntry) => ({
+         ...entry,
+         key: entry.key ? cryptr.decrypt(entry.key) : '',
+      }));
+
       decryptedSettings = {
          ...settings,
          scaping_api,
+         scaping_apis,
          smtp_password,
          search_console_client_email,
          search_console_private_key,

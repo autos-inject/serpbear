@@ -1,3 +1,4 @@
+/* eslint-disable max-len */
 import axios, { AxiosResponse, CreateAxiosDefaults } from 'axios';
 import * as cheerio from 'cheerio';
 import { readFile, writeFile } from 'fs/promises';
@@ -14,7 +15,43 @@ type SearchResult = {
 type PageScrapeResult = {
    results: SearchResult[],
    error?: string,
+   quotaExhausted?: boolean,
 }
+
+const getApiKeysToTry = (settings: SettingsType): Array<{ id: string, key: string }> => {
+   if (settings.scaping_apis && settings.scaping_apis.length > 0) {
+      const active = settings.scaping_apis.filter(
+         (k) => k.provider === settings.scraper_type && !k.exhausted && k.key,
+      );
+      if (active.length > 0) return active.map((k) => ({ id: k.id, key: k.key }));
+   }
+   if (settings.scaping_api) return [{ id: 'legacy', key: settings.scaping_api }];
+   return [];
+};
+
+const updateKeyInSettings = async (keyId: string, patch: Partial<ApiKeyEntry>): Promise<void> => {
+   if (keyId === 'legacy') return;
+   const filePath = `${process.cwd()}/data/settings.json`;
+   try {
+      const raw = await readFile(filePath, { encoding: 'utf-8' });
+      const data = JSON.parse(raw);
+      if (Array.isArray(data.scaping_apis)) {
+         data.scaping_apis = data.scaping_apis.map((k: ApiKeyEntry) => (k.id === keyId ? { ...k, ...patch } : k));
+         await writeFile(filePath, JSON.stringify(data), { encoding: 'utf-8' });
+      }
+   } catch (e) {
+      console.log('[ERROR] updateKeyInSettings:', e);
+   }
+};
+
+const markKeyExhausted = async (keyId: string): Promise<void> => {
+   console.log(`[KEY ROTATION] Key ${keyId} marked as exhausted.`);
+   await updateKeyInSettings(keyId, { exhausted: true });
+};
+
+const incrementKeyCount = async (keyId: string, currentCount: number): Promise<void> => {
+   await updateKeyInSettings(keyId, { requestCount: currentCount + 1 });
+};
 
 type SERPObject = {
    position:number,
@@ -106,6 +143,9 @@ export const getScraperClient = (
 /**
  * Scrape a single page of Google Search results with absolute position offsets applied.
  */
+const QUOTA_ERROR = 'QUOTA_EXHAUSTED';
+const QUOTA_PATTERN = /exceed|limit|quota|credit|insufficient|payment|403|429/i;
+
 const scrapeSinglePage = async (
    keyword: KeywordType,
    settings: SettingsType,
@@ -116,7 +156,20 @@ const scrapeSinglePage = async (
    const scraperClient = getScraperClient(keyword, settings, scraperObj, pagination);
    if (!scraperClient) { return { results: [], error: 'No scraper client available' }; }
    try {
-      const res = scraperType === 'proxy' && settings.proxy ? await scraperClient : await scraperClient.then((result:any) => result.json());
+      let res: any;
+      if (scraperType === 'proxy' && settings.proxy) {
+         res = await scraperClient;
+      } else {
+         const rawResponse = await (scraperClient as Promise<Response>);
+         if (!rawResponse.ok && [401, 402, 403, 429].includes(rawResponse.status)) {
+            return { results: [], error: QUOTA_ERROR, quotaExhausted: true };
+         }
+         res = await rawResponse.json();
+         const bodyError = String(res?.message || res?.error || res?.detail || '');
+         if (bodyError && QUOTA_PATTERN.test(bodyError)) {
+            return { results: [], error: QUOTA_ERROR, quotaExhausted: true };
+         }
+      }
       const scraperResult = scraperObj?.resultObjectKey && res[scraperObj.resultObjectKey] ? res[scraperObj.resultObjectKey] : '';
       const scrapeResult: string = (scraperResult || res.data || res.html || res.results || '');
       if (res && scrapeResult) {
@@ -177,7 +230,7 @@ const resolveStrategy = (
  * @param {Partial<DomainType>} domainSettings - optional domain-level setting overrides
  * @returns {RefreshResult}
  */
-export const scrapeKeywordWithStrategy = async (
+const scrapeKeywordWithStrategyCore = async (
    keyword: KeywordType,
    settings: SettingsType,
    domainSettings?: Partial<DomainType>,
@@ -227,12 +280,13 @@ export const scrapeKeywordWithStrategy = async (
       const pagination: ScraperPagination = { start: (pageNum - 1) * PAGE_SIZE, num: PAGE_SIZE, page: pageNum };
       // eslint-disable-next-line no-await-in-loop
       const pageResult = await scrapeSinglePage(keyword, settings, scraperObj, pagination);
-      const errTag = pageResult.error ? ` (error: ${pageResult.error})` : '';
+      // eslint-disable-next-line no-await-in-loop
+      if (pageResult.quotaExhausted) { return { ...errorResult, error: QUOTA_ERROR }; }
       if (pageResult.error) { pageErrors += 1; }
       if (pageResult.results.length > 0) { allScrapedResults.push(...pageResult.results); }
    }
 
-   // Smart + full fallback: if domain not found on scraped pages, walk remaining pages one by one and stop early when found
+   // Smart + full fallback: walk remaining pages one by one, stop early when found
    if (strategy === 'smart' && smartFullFallback) {
       const serpCheck = allScrapedResults.length > 0
          ? getSerp(keyword.domain, allScrapedResults, subdomainMatching) : { position: 0, url: '' };
@@ -244,6 +298,7 @@ export const scrapeKeywordWithStrategy = async (
             // eslint-disable-next-line no-await-in-loop
             const pageResult = await scrapeSinglePage(keyword, settings, scraperObj, pagination);
             totalPagesAttempted += 1;
+            if (pageResult.quotaExhausted) { return { ...errorResult, error: QUOTA_ERROR }; }
             if (pageResult.error) { pageErrors += 1; }
             if (pageResult.results.length > 0) {
                allScrapedResults.push(...pageResult.results);
@@ -287,6 +342,37 @@ export const scrapeKeywordWithStrategy = async (
    };
 };
 
+export const scrapeKeywordWithStrategy = async (
+   keyword: KeywordType,
+   settings: SettingsType,
+   domainSettings?: Partial<DomainType>,
+): Promise<RefreshResult> => {
+   const keysToTry = getApiKeysToTry(settings);
+   if (keysToTry.length === 0) return scrapeKeywordWithStrategyCore(keyword, settings, domainSettings);
+
+   for (const keyEntry of keysToTry) {
+      const s: SettingsType = { ...settings, scaping_api: keyEntry.key };
+      // eslint-disable-next-line no-await-in-loop
+      const result = await scrapeKeywordWithStrategyCore(keyword, s, domainSettings);
+      if (result && typeof result.error === 'string' && result.error === QUOTA_ERROR) {
+         console.log(`[KEY ROTATION] Rotating from key ${keyEntry.id}...`);
+         // eslint-disable-next-line no-await-in-loop
+         await markKeyExhausted(keyEntry.id);
+         continue;
+      }
+      if (result && !result.error) {
+         // eslint-disable-next-line no-await-in-loop
+         await incrementKeyCount(keyEntry.id, (settings.scaping_apis?.find((k) => k.id === keyEntry.id)?.requestCount || 0));
+      }
+      return result;
+   }
+   return {
+      ID: keyword.ID, keyword: keyword.keyword, position: keyword.position,
+      url: keyword.url, result: keyword.lastResult,
+      error: 'All API keys exhausted — add more keys in Settings',
+   };
+};
+
 /**
  * Scrape Google Search result from a single request (used by native-pagination scrapers and keyword preview).
  * For strategy-based multi-page scraping use scrapeKeywordWithStrategy().
@@ -295,7 +381,7 @@ export const scrapeKeywordWithStrategy = async (
  * @param {string} subdomainMatching - optional subdomain matching patterns
  * @returns {RefreshResult}
  */
-export const scrapeKeywordFromGoogle = async (keyword:KeywordType, settings:SettingsType, subdomainMatching?: string) : Promise<RefreshResult> => {
+const scrapeKeywordFromGoogleCore = async (keyword:KeywordType, settings:SettingsType, subdomainMatching?: string) : Promise<RefreshResult> => {
    let refreshedResults:RefreshResult = {
       ID: keyword.ID,
       keyword: keyword.keyword,
@@ -313,7 +399,20 @@ export const scrapeKeywordFromGoogle = async (keyword:KeywordType, settings:Sett
 
    let scraperError:any = null;
    try {
-      const res = scraperType === 'proxy' && settings.proxy ? await scraperClient : await scraperClient.then((result:any) => result.json());
+      let res: any;
+      if (scraperType === 'proxy' && settings.proxy) {
+         res = await scraperClient;
+      } else {
+         const rawResponse = await (scraperClient as Promise<Response>);
+         if (!rawResponse.ok && [401, 402, 403, 429].includes(rawResponse.status)) {
+            return { ...refreshedResults, error: QUOTA_ERROR };
+         }
+         res = await rawResponse.json();
+         const bodyError = String(res?.message || res?.error || res?.detail || '');
+         if (bodyError && QUOTA_PATTERN.test(bodyError)) {
+            return { ...refreshedResults, error: QUOTA_ERROR };
+         }
+      }
       const scraperResult = scraperObj?.resultObjectKey && res[scraperObj.resultObjectKey] ? res[scraperObj.resultObjectKey] : '';
       const scrapeResult:string = (scraperResult || res.data || res.html || res.results || '');
       if (res && scrapeResult) {
@@ -343,6 +442,29 @@ export const scrapeKeywordFromGoogle = async (keyword:KeywordType, settings:Sett
    }
 
    return refreshedResults;
+};
+
+export const scrapeKeywordFromGoogle = async (keyword:KeywordType, settings:SettingsType, subdomainMatching?: string) : Promise<RefreshResult> => {
+   const keysToTry = getApiKeysToTry(settings);
+   if (keysToTry.length === 0) return scrapeKeywordFromGoogleCore(keyword, settings, subdomainMatching);
+
+   for (const keyEntry of keysToTry) {
+      const s: SettingsType = { ...settings, scaping_api: keyEntry.key };
+      // eslint-disable-next-line no-await-in-loop
+      const result = await scrapeKeywordFromGoogleCore(keyword, s, subdomainMatching);
+      if (result && typeof result.error === 'string' && result.error === QUOTA_ERROR) {
+         console.log(`[KEY ROTATION] Rotating from key ${keyEntry.id}...`);
+         // eslint-disable-next-line no-await-in-loop
+         await markKeyExhausted(keyEntry.id);
+         continue;
+      }
+      return result;
+   }
+   return {
+      ID: keyword.ID, keyword: keyword.keyword, position: keyword.position,
+      url: keyword.url, result: keyword.lastResult,
+      error: 'All API keys exhausted — add more keys in Settings',
+   };
 };
 
 /**
