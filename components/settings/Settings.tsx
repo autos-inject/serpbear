@@ -93,8 +93,7 @@ const Settings = ({ closeSettings }:SettingsProps) => {
       }
    };
 
-   const tabStyle = `inline-block px-3 py-2 rounded-md  cursor-pointer text-xs lg:text-sm lg:mr-3 lg:px-4 select-none z-10
-   text-gray-600 border border-b-0 relative top-[1px] rounded-b-none`;
+   const tabStyle = 'inline-block px-2 py-2 rounded-md cursor-pointer text-xs mr-1 select-none z-10 text-gray-600 border border-b-0 relative top-[1px] rounded-b-none';
    const tabStyleActive = 'bg-white text-blue-600 border-slate-200';
 
    return (
@@ -110,7 +109,7 @@ const Settings = ({ closeSettings }:SettingsProps) => {
                   </button>
                </div>
                <div className='border border-slate-200 px-3 py-4 pb-0 border-l-0 border-r-0 bg-[#f8f9ff]'>
-                  <ul>
+                  <ul className='flex flex-nowrap overflow-x-auto'>
                      <li
                      className={`${tabStyle} ${currentTab === 'scraper' ? tabStyleActive : 'border-transparent '}`}
                      onClick={() => setCurrentTab('scraper')}>
