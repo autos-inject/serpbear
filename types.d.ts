@@ -249,6 +249,14 @@ type IdeaKeyword = {
    position:number
 }
 
+type AppUser = {
+   ID: number,
+   username: string,
+   email: string,
+   role: 'admin' | 'viewer',
+   created_at?: string,
+}
+
 type scraperExtractedItem = {
    title: string,
    url: string,
