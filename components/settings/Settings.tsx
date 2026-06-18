@@ -93,6 +93,7 @@ const Settings = ({ closeSettings }:SettingsProps) => {
       }
    };
 
+   // eslint-disable-next-line max-len
    const tabStyle = 'inline-block px-2 py-2 rounded-md cursor-pointer text-xs mr-1 select-none z-10 text-gray-600 border border-b-0 relative top-[1px] rounded-b-none';
    const tabStyleActive = 'bg-white text-blue-600 border-slate-200';
 
