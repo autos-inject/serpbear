@@ -2,15 +2,24 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import db from '../../../database/database';
 import Domain from '../../../database/models/domain';
 import Keyword from '../../../database/models/keyword';
+import { getApiKey, getAllowedIPs } from '../../../utils/apiKey';
 
-function verifyApiKey(req: NextApiRequest): boolean {
+async function verifyRequest(req: NextApiRequest): Promise<string | null> {
    const auth = req.headers.authorization || '';
    const key = auth.startsWith('Bearer ') ? auth.slice(7) : req.query.apikey as string;
-   return key === process.env.APIKEY;
+   const validKey = await getApiKey();
+   if (!key || key !== validKey) return 'Invalid API key';
+   const allowedIPs = await getAllowedIPs();
+   if (allowedIPs.length > 0) {
+      const clientIP = (req.headers['x-forwarded-for'] as string || req.socket.remoteAddress || '').split(',')[0].trim();
+      if (!allowedIPs.includes(clientIP)) return 'IP not allowed';
+   }
+   return null;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-   if (!verifyApiKey(req)) return res.status(401).json({ error: 'Invalid API key' });
+   const err = await verifyRequest(req);
+   if (err) return res.status(401).json({ error: err });
    if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
    await db.authenticate();
