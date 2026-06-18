@@ -110,7 +110,7 @@ const Settings = ({ closeSettings }:SettingsProps) => {
                   </button>
                </div>
                <div className='border border-slate-200 px-3 py-4 pb-0 border-l-0 border-r-0 bg-[#f8f9ff]'>
-                  <ul className='flex flex-nowrap overflow-x-auto'>
+                  <ul className='flex flex-nowrap overflow-x-auto' style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
                      <li
                      className={`${tabStyle} ${currentTab === 'scraper' ? tabStyleActive : 'border-transparent '}`}
                      onClick={() => setCurrentTab('scraper')}>

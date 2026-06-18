@@ -107,7 +107,7 @@ const UsersSettings = () => {
    };
 
    return (
-      <div className="p-4 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 200px)' }}>
+      <div className="p-4 overflow-y-auto overflow-x-hidden" style={{ maxHeight: 'calc(100vh - 200px)', scrollbarWidth: 'thin' }}>
          <div className="flex justify-between items-center mb-4">
             <h4 className="text-sm font-bold text-gray-700">Users ({users.length})</h4>
             <button
