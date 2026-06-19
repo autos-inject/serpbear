@@ -1,7 +1,49 @@
 import { auth, searchconsole_v1 } from '@googleapis/searchconsole';
 import Cryptr from 'cryptr';
 import { readFile, writeFile, unlink } from 'fs/promises';
+import { createSign, createPrivateKey } from 'crypto';
+import { request as httpsRequest } from 'https';
 import { getCountryCodeFromAlphaThree } from './countries';
+
+async function getGoogleAccessToken(clientEmail: string, privateKey: string): Promise<string> {
+   const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+   const now = Math.floor(Date.now() / 1000);
+   const claim = Buffer.from(JSON.stringify({
+      iss: clientEmail,
+      scope: 'https://www.googleapis.com/auth/webmasters.readonly',
+      aud: 'https://oauth2.googleapis.com/token',
+      exp: now + 3600,
+      iat: now,
+   })).toString('base64url');
+   const pkObj = createPrivateKey({ key: privateKey, format: 'pem' });
+   const sign = createSign('RSA-SHA256');
+   sign.update(`${header}.${claim}`);
+   const jwt = `${header}.${claim}.${sign.sign(pkObj, 'base64url')}`;
+   const body = `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`;
+   return new Promise((resolve, reject) => {
+      const req = httpsRequest(
+         { hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) } },
+         (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { const r = JSON.parse(d); r.access_token ? resolve(r.access_token) : reject(new Error(r.error_description || r.error)); }); },
+      );
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+   });
+}
+
+async function scApiRequest(accessToken: string, siteUrl: string, requestBody: object): Promise<any> {
+   const path = `/webmasters/v3/sites/${encodeURIComponent(siteUrl)}/searchAnalytics/query`;
+   const bodyStr = JSON.stringify(requestBody);
+   return new Promise((resolve, reject) => {
+      const req = httpsRequest(
+         { hostname: 'searchconsole.googleapis.com', path, method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(bodyStr) } },
+         (res) => { let d = ''; res.on('data', (c) => { d += c; }); res.on('end', () => { try { resolve(JSON.parse(d)); } catch (e) { reject(e); } }); },
+      );
+      req.on('error', reject);
+      req.write(bodyStr);
+      req.end();
+   });
+}
 
 export type SCDomainFetchError = {
    error: boolean,
@@ -30,69 +72,47 @@ const fetchSearchConsoleData = async (domain:DomainType, days:number, type?:stri
    const sCClientEmail = api?.client_email || process.env.SEARCH_CONSOLE_CLIENT_EMAIL || '';
 
    try {
-   let fixedKey = sCPrivateKey.replaceAll('\\n', '\n');
-   if (fixedKey && !fixedKey.includes('-----BEGIN')) {
-      fixedKey = `-----BEGIN PRIVATE KEY-----\n${fixedKey.trim()}\n-----END PRIVATE KEY-----\n`;
-   }
-   const authClient = new auth.GoogleAuth({
-      credentials: {
-        private_key: fixedKey,
-        client_email: (sCClientEmail || '').trim(),
-      },
-      scopes: [
-        'https://www.googleapis.com/auth/webmasters.readonly',
-      ],
-   });
-   const startDateRaw = new Date(new Date().setDate(new Date().getDate() - days));
-   const padDate = (num:number) => String(num).padStart(2, '0');
-   const startDate = `${startDateRaw.getFullYear()}-${padDate(startDateRaw.getMonth() + 1)}-${padDate(startDateRaw.getDate())}`;
-   const endDate = `${new Date().getFullYear()}-${padDate(new Date().getMonth() + 1)}-${padDate(new Date().getDate())}`;
-   const client = new searchconsole_v1.Searchconsole({ auth: authClient });
-   // Params: https://developers.google.com/webmaster-tools/v1/searchanalytics/query
-   let requestBody:any = {
-      startDate,
-      endDate,
-      type: 'web',
-      rowLimit: 1000,
-      dataState: 'all',
-      dimensions: ['query', 'device', 'country', 'page'],
-   };
-   if (type === 'stat') {
-      requestBody = {
-         startDate,
-         endDate,
-         dataState: 'all',
-         dimensions: ['date'],
-      };
-   }
+      let fixedKey = sCPrivateKey.replaceAll('\\n', '\n');
+      if (fixedKey && !fixedKey.includes('-----BEGIN')) {
+         fixedKey = `-----BEGIN PRIVATE KEY-----\n${fixedKey.trim()}\n-----END PRIVATE KEY-----\n`;
+      }
+      const accessToken = await getGoogleAccessToken(sCClientEmail.trim(), fixedKey);
+
+      const startDateRaw = new Date(new Date().setDate(new Date().getDate() - days));
+      const padDate = (num:number) => String(num).padStart(2, '0');
+      const startDate = `${startDateRaw.getFullYear()}-${padDate(startDateRaw.getMonth() + 1)}-${padDate(startDateRaw.getDate())}`;
+      const endDate = `${new Date().getFullYear()}-${padDate(new Date().getMonth() + 1)}-${padDate(new Date().getDate())}`;
 
       const cleanDomain = domainName.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/+$/, '');
       const siteUrl = domainSettings.property_type === 'url' && domainSettings.url ? domainSettings.url : `sc-domain:${cleanDomain}`;
-      const res = client.searchanalytics.query({ siteUrl, requestBody });
-      const resData:any = (await res).data;
-      let finalRows = resData.rows ? resData.rows.map((item:SearchAnalyticsRawItem) => parseSearchConsoleItem(item, domainName)) : [];
 
+      let requestBody:any = {
+         startDate, endDate, type: 'web', rowLimit: 1000, dataState: 'all',
+         dimensions: ['query', 'device', 'country', 'page'],
+      };
+      if (type === 'stat') {
+         requestBody = { startDate, endDate, dataState: 'all', dimensions: ['date'] };
+      }
+
+      const resData = await scApiRequest(accessToken, siteUrl, requestBody);
+      if (resData.error) { throw new Error(resData.error.message || JSON.stringify(resData.error)); }
+
+      let finalRows = resData.rows ? resData.rows.map((item:SearchAnalyticsRawItem) => parseSearchConsoleItem(item, domainName)) : [];
       if (type === 'stat' && resData.rows && resData.rows.length > 0) {
-         // console.log(resData.rows);
-         finalRows = [];
-         resData.rows.forEach((row:SearchAnalyticsRawItem) => {
-            finalRows.push({
-               date: row.keys[0],
-               clicks: row.clicks,
-               impressions: row.impressions,
-               ctr: row.ctr * 100,
-               position: row.position,
-            });
-         });
+         finalRows = resData.rows.map((row:SearchAnalyticsRawItem) => ({
+            date: row.keys[0],
+            clicks: row.clicks,
+            impressions: row.impressions,
+            ctr: row.ctr * 100,
+            position: row.position,
+         }));
       }
 
       return finalRows;
    } catch (err:any) {
       const qType = type === 'stats' ? '(stats)' : `(${days}days)`;
-      const errorMsg = err?.response?.status && `${err?.response?.statusText}. ${err?.response?.data?.error_description}`;
-      console.log(`[ERROR] Search Console API Error for ${domainName} ${qType} : `, errorMsg || err?.code);
-      // console.log('SC ERROR :', err);
-      return { error: true, errorMsg: errorMsg || err?.code };
+      console.log(`[ERROR] Search Console API Error for ${domainName} ${qType} : `, err?.message || err?.code);
+      return { error: true, errorMsg: err?.message || err?.code };
    }
 };
 
