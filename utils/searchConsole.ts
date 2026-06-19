@@ -30,9 +30,13 @@ const fetchSearchConsoleData = async (domain:DomainType, days:number, type?:stri
    const sCClientEmail = api?.client_email || process.env.SEARCH_CONSOLE_CLIENT_EMAIL || '';
 
    try {
+   let fixedKey = sCPrivateKey.replaceAll('\\n', '\n');
+   if (fixedKey && !fixedKey.includes('-----BEGIN')) {
+      fixedKey = `-----BEGIN PRIVATE KEY-----\n${fixedKey.trim()}\n-----END PRIVATE KEY-----\n`;
+   }
    const authClient = new auth.GoogleAuth({
       credentials: {
-        private_key: (sCPrivateKey).replaceAll('\\n', '\n'),
+        private_key: fixedKey,
         client_email: (sCClientEmail || '').trim(),
       },
       scopes: [
